@@ -1,187 +1,188 @@
 # Android Automation Skill
 
-**Skill:** `android-automation`
+**Skill:** `android-automation`  
 **Repo:** https://github.com/IndiaJonathan/hal-p-android-automation  
 **Type:** Device Control / QA Automation  
-**Purpose:** Headless/headed Android app interaction via ADB — click, tap, swipe, dump UI, screenshot, install APK, verify screen state.  
+**Purpose:** Click, tap, swipe, dump UI, screenshot, install APK, verify screen state on Android devices.
 
 ---
 
-## Core Concepts
+## TL;DR — Quick Start
 
-### ADB (Android Debug Bridge)
-All automation runs through `adb` commands executed via `exec`. ADB is at:
-```
-~/Library/Android/sdk/platform-tools/adb
-```
-
-### Emulator vs Real Device
-- **Emulator:** connect via `adb connect emulator-5554` or auto-detect
-- **Real device:** must have USB debugging enabled, connected via USB or same WiFi
-- Emulator is unreliable for taps (ARM hypervisor + virtio multi-touch conflicts); prefer element-based coordinates over hardcoded taps
-
-### Emulator Startup
 ```bash
-# List available AVDs
-~/Library/Android/sdk/emulator/emulator -list-avds
+# Install
+pip3 install --break-system-packages uiautomator2
 
-# Start a specific AVD (headless: -no-window; headed: omit)
-nohup ~/Library/Android/sdk/emulator/emulator -avd AVD_NAME \
-  -no-snapshot-load -no-audio -no-boot-anim > /tmp/emulator.log 2>&1 &
+# Connect (real device via USB, or emulator via serial)
+python3 -c "import uiautomator2 as u2; d = u2.connect('emulator-5554')"
+python3 -c "import uiautomator2 as u2; d = u2.connect_usb('YOUR_SERIAL')"
 
-# Wait for boot
-sleep 30
-~/Library/Android/sdk/platform-tools/adb wait-for-device
+# Tap by content-desc
+d(description="Skip").click()
+
+# Tap by text
+d(text="Sign In").click()
+
+# Type
+d.set_fastinput_ime(True)
+d.send_text("hello@example.com")
+d.set_fastinput_ime(False)
+
+# Screenshot
+d.screenshot("/tmp/screen.png")
+
+# Run QA
+python3 scripts/poem_qa.py --device emulator-5554
 ```
-
-### Always Check Device First
-```bash
-~/Library/Android/sdk/platform-tools/adb devices -l
-```
-Confirm exactly one device is present before running any interaction.
 
 ---
 
-## UI Automation Flow
+## Core Library: uiautomator2
 
-### Step 1 — Dump UI Hierarchy
+`uiautomator2` is the standard Python Android automation library. It works via an HTTP server on the device (`atx-agent` + `u2.jar`).
+
+### Installation
+
 ```bash
-~/Library/Android/sdk/platform-tools/adb exec-out uiautomator dump /sdcard/ui.xml
-~/Library/Android/sdk/platform-tools/adb exec-out cat /sdcard/ui.xml > /tmp/ui.xml
+pip3 install --break-system-packages uiautomator2
 ```
 
-### Step 2 — Parse Element Coordinates
-Use `scripts/android_ui.py` to find element bounds:
-```bash
-python3 scripts/android_ui.py /tmp/ui.xml find --text "Sign In"
-python3 scripts/android_ui.py /tmp/ui.xml find --clickable
-python3 scripts/android_ui.py /tmp/ui.xml find --bounds "0,158][192,263"
+### Device Connection
+
+```python
+import uiautomator2 as u2
+
+# Emulator
+d = u2.connect('emulator-5554')        # via ADB port forward
+d = u2.connect('localhost:5557')       # direct emulator VNC port
+
+# Real device (USB debugging enabled)
+d = u2.connect_usb('SERIAL')           # USB via ADB serial
+
+# WiFi (device must have atx-agent running)
+d = u2.connect('http://192.168.1.100:9007')
 ```
 
-### Step 3 — Tap by Coordinates
+### IMPORTANT: atx-agent Required
+
+uiautomator2 **requires `atx-agent` to be installed on the device** for full functionality:
+- Real Android device: `python -m uiautomator2 install-daemon` (from a computer with the device connected via USB) — this pushes `atx-agent` and `u2.jar` to the device
+- Emulator: `atx-agent` is **not pre-installed** by default. For emulators, use the **pure subprocess fallback** (see below)
+
+When `atx-agent` is running, u2 operations are reliable (tap, swipe, text, screenshot all work). When it's not running, UI operations hang or fail.
+
+### Verify Connection
+
+```python
+d = u2.connect('emulator-5554')
+print(d.info)  # prints device info — works even without atx-agent
+```
+
+---
+
+## Pure Subprocess Fallback (Emulators)
+
+For emulators without `atx-agent`, use direct ADB commands. This works but taps may be unreliable on ARM emulators due to virtio multi-touch quirks.
+
 ```bash
-# Physical screen tap
+# Tap (works reliably on x86 emulators, flaky on ARM)
 ~/Library/Android/sdk/platform-tools/adb shell "input touchscreen tap X Y"
 
-# If simple tap doesn't work (virtio conflict), try:
-~/Library/Android/sdk/platform-tools/adb shell "input tap X Y"
-~/Library/Android/sdk/platform-tools/adb shell "sendevent /dev/input/eventX 3 0 X_SCREEN 0"
-~/Library/Android/sdk/platform-tools/adb shell "sendevent /dev/input/eventX 3 1 Y_SCREEN 0"
+# Screenshot
+~/Library/Android/sdk/platform-tools/adb exec-out screencap -p > screen.png
+
+# UI dump
+~/Library/Android/sdk/platform-tools/adb exec-out uiautomator dump /sdcard/ui.xml
+~/Library/Android/sdk/platform-tools/adb exec-out cat /sdcard/ui.xml > ui.xml
 ```
 
-### Step 4 — Wait + Screenshot
-```bash
-sleep 2
-~/Library/Android/sdk/platform-tools/adb exec-out screencap -p > /tmp/screen.png
-```
+See `scripts/android_ui.py` to parse the UI dump and find element coordinates.
 
 ---
 
-## Screenshot
-```bash
-~/Library/Android/sdk/platform-tools/adb exec-out screencap -p > /tmp/screen.png
-# Or from script:
-python3 scripts/android_screen.py [--output /tmp/screen.png]
-```
-
----
-
-## App Management
-```bash
-# Install/update APK
-~/Library/Android/sdk/platform-tools/adb install -r /path/to.apk
-
-# Clear app data (fresh start)
-~/Library/Android/sdk/platform-tools/adb shell "pm clear com.package.name"
-
-# Start app
-~/Library/Android/sdk/platform-tools/adb shell "am start -n com.package.name/.MainActivity"
-
-# Check if app is running
-~/Library/Android/sdk/platform-tools/adb shell "dumpsys activity activities" | grep "com.package.name"
-```
-
----
-
-## Network / Proxy
-```bash
-# Set HTTP proxy (for emulator, use 10.0.2.2:PORT to reach host Mac)
-~/Library/Android/sdk/platform-tools/adb shell "settings put global http_proxy 10.0.2.2:8111"
-
-# Remove proxy
-~/Library/Android/sdk/platform-tools/adb shell "settings put global http_proxy :0"
-
-# Check proxy
-~/Library/Android/sdk/platform-tools/adb shell "settings get global http_proxy"
-```
-
----
-
-## State Files (per-session)
-
-Automation should write state to:
-```
-/tmp/android-automation-state.json
-```
-
-```json
-{
-  "session": "poem-qa-001",
-  "last_screen": "HomeScreen",
-  "last_screenshot": "/tmp/screen.png",
-  "last_ui_dump": "/tmp/ui.xml",
-  "last_tap": { "x": 540, "y": 1330 },
-  "last_navigation": "Auth"
-}
-```
-
----
-
-## Script Reference
+## Scripts Provided
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/android_ui.py` | Parse UI dump XML, find elements by text/desc/bounds/clickable |
-| `scripts/android_screen.py` | Capture screenshot, optionally compare with baseline |
-| `scripts/android_controller.py` | Python module — ADB wrapper + controller class |
+| `android_controller.py` | ADB wrapper using pure subprocess. Use for emulators without atx-agent. |
+| `poem_qa.py` | Poem of the Day QA runner. Works with both u2 (real device) and subprocess (emulator). |
+| `android_ui.py` | Parse `uiautomator dump` XML. Find elements by text/desc/bounds. CLI: `python3 android_ui.py ui.xml --find "Sign In"` |
 
 ---
 
-## Example: Complete Sign-in Flow
+## poem_qa.py Usage
+
+```bash
+# Run full QA (installs APK, completes onboarding, verifies home screen)
+python3 scripts/poem_qa.py --device emulator-5554 --apk ./app-release.apk
+
+# Skip install (app already on device)
+python3 scripts/poem_qa.py --device emulator-5554 --no-install
+
+# Real device via USB
+python3 scripts/poem_qa.py --device USB:SERIAL --apk ./app-release.apk
+```
+
+Exit codes: `0` = pass, `1` = fail, `2` = error
+
+---
+
+## Quick Reference
+
+### Find and tap elements
 ```python
-import subprocess, time
-import scripts.android_controller as adb
+d(description="Skip").click()
+d(text="Sign In").click()
+d.xpath('//android.widget.Button[@text="Next"]').click()
+```
 
-device = adb.AndroidDevice()  # auto-detects device
+### Get fresh element bounds (avoid cached stale coordinates)
+```python
+el = d(description="Skip", timeout=0)  # fresh lookup
+bounds = el.info['bounds']
+cx = (bounds['left'] + bounds['right']) // 2
+cy = (bounds['top'] + bounds['bottom']) // 2
+d.click(cx, cy)
+```
 
-# Start app fresh
-device.clear_app("com.mahoodles.poemoftheday")
-device.start_app("com.mahoodles.poemoftheday")
-time.sleep(5)
+### Swipe
+```python
+d.swipe(540, 1500, 540, 500)  # swipe up
+d.swipe(800, 960, 280, 960)    # swipe left
+```
 
-# Dump UI and find Sign In button
-device.dump_ui("/tmp/ui.xml")
-elements = adb.find_elements("/tmp/ui.xml", text="Sign In")
-tap_coords = elements[0].center()
-device.tap(*tap_coords)
-time.sleep(2)
+### App management
+```python
+d.app_start('com.example.app')
+d.app_clear('com.example.app')  # fresh start
+d.app_stop('com.example.app')
+```
 
-# Type email
-device.dump_ui("/tmp/ui2.xml")
-email_field = adb.find_element("/tmp/ui2.xml", text="Email")
-device.tap(*email_field.center())
-device.type_text("test@poem.test")
-
-# Take screenshot
-device.screenshot("/tmp/post-signin.png")
+### Wait for element
+```python
+if d(description="Home", timeout=10).exists():
+    d(description="Home").click()
 ```
 
 ---
 
-## Limitations / Known Issues
+## Troubleshooting
 
-- **Emulator taps:** `input tap` may not work reliably on ARM emulators (virtio multi-touch conflict). Use `sendevent` or accept headed browser testing as alternative.
-- **Real device:** `exec-out screencap` works on both emulator and real device.
-- **App not debuggable:** `run-as` package debugging requires debuggable flag; for release builds, use accessibility dump only.
-- **Timing:** Always `sleep` after taps — UI takes time to update.
-- **UI dump bounds are physical, not virtual:** uiautomator reports physical pixel coordinates; verify with screenshot before tapping.
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `d.info` works but `click()` hangs | `atx-agent` not running | Install: `python -m uiautomator2 install-daemon` |
+| All taps silently do nothing | `atx-agent` not running | Same as above |
+| Element found but wrong coordinates | Cached element reference | Always fresh lookup: `d(desc).click()` directly |
+| Emulator tap misses target | ARM virtio multi-touch conflict | Use real device, or accept slight coordinate drift |
+| `pip install uiautomator2` fails | PEP 668 pinned env | `pip3 install --break-system-packages uiautomator2` |
+
+---
+
+## Pre-Delivery QA Checklist (use poem_qa.py)
+
+- [ ] APK installs cleanly (`Success` from `adb install`)
+- [ ] App launches to onboarding (not crash/blank screen)
+- [ ] Onboarding completes — reaches home/main screen
+- [ ] Home screen shows poem content
+- [ ] No crash logged in `dumpsys package`
+- [ ] Tab navigation works (Browse, Favorites, Profile)
