@@ -1,6 +1,7 @@
 # Android Automation Skill
 
 **Skill:** `android-automation`
+**Repo:** https://github.com/IndiaJonathan/hal-p-android-automation  
 **Type:** Device Control / QA Automation  
 **Purpose:** Headless/headed Android app interaction via ADB — click, tap, swipe, dump UI, screenshot, install APK, verify screen state.  
 
@@ -183,3 +184,4 @@ device.screenshot("/tmp/post-signin.png")
 - **Real device:** `exec-out screencap` works on both emulator and real device.
 - **App not debuggable:** `run-as` package debugging requires debuggable flag; for release builds, use accessibility dump only.
 - **Timing:** Always `sleep` after taps — UI takes time to update.
+- **UI dump bounds are physical, not virtual:** uiautomator reports physical pixel coordinates; verify with screenshot before tapping.

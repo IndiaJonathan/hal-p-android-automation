@@ -110,10 +110,11 @@ def dismiss_keyboard() -> None:
 
 def install_apk(apk_path: str, upgrade: bool = True) -> bool:
     """Install APK. Returns True on success."""
-    flags = '-r ' if upgrade else ''
-    result = subprocess.run(
-        [ADB, 'install', flags, apk_path], capture_output=True, text=True, timeout=120
-    )
+    cmd = [ADB, 'install']
+    if upgrade:
+        cmd.append('-r')
+    cmd.append(apk_path)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     return 'Success' in result.stdout
 
 def clear_app(package: str) -> None:

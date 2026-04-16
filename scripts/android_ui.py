@@ -2,7 +2,7 @@
 """android_ui.py — Parse Android UI dump XML, find elements by various criteria."""
 import sys, re, xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
 
 @dataclass
 class UIElement:
@@ -45,6 +45,21 @@ def parse_ui(xml_path: str) -> list[UIElement]:
             ))
 
     return elements
+
+
+def find_clickable_parent(elements: list[UIElement], text: str) -> Optional[UIElement]:
+    """Find a clickable element whose child text matches (case-insensitive)."""
+    text_lower = text.lower()
+    for i, e in enumerate(elements):
+        e_text = (e.text or '').lower()
+        if text_lower in e_text:
+            # Check if this element is clickable
+            if e.clickable:
+                return e
+            # Check if previous element (parent) is clickable
+            if i > 0 and elements[i-1].clickable:
+                return elements[i-1]
+    return None
 
 
 def find_by_text(elements: list[UIElement], text: str, exact: bool = False) -> list[UIElement]:
